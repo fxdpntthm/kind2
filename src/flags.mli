@@ -487,6 +487,9 @@ module IVC : sig
   (** Timeout for unsat core computation *)
   val ivc_uc_timeout : unit -> int
 
+  (** Disable the MUST set optimisation when computing all MIVCs *)
+  val ivc_disable_must_opt : unit -> bool
+
 end
 
 (** {2 Minimal Cut Sets} *)

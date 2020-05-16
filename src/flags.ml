@@ -1404,6 +1404,23 @@ module IVC = struct
     )
   let ivc_uc_timeout () = !ivc_uc_timeout
 
+
+  let ivc_disable_must_opt_default = false
+  let ivc_disable_must_opt = ref ivc_disable_must_opt_default
+  let _ = add_spec
+    "--ivc_disable_must_opt"
+    (bool_arg ivc_disable_must_opt)
+    (fun fmt ->
+      Format.fprintf fmt
+        "\
+          Disable the MUST set optimisation when computing all MIVCs.@ \
+          Ignored if --ivc_all is false.@ \
+          Default: %a\
+        "
+        fmt_bool ivc_disable_must_opt_default
+    )
+  let ivc_disable_must_opt () = !ivc_disable_must_opt
+
 end
 
 (* Minimal Cut Sets flags. *)
