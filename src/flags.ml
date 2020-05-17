@@ -1413,7 +1413,7 @@ module IVC = struct
     (fun fmt ->
       Format.fprintf fmt
         "\
-          Disable the MUST set optimisation when computing all MIVCs.@ \
+          Disable the MUST set optimization when computing all MIVCs.@ \
           Ignored if --ivc_all is false.@ \
           Default: %a\
         "

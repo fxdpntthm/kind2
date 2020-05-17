@@ -27,7 +27,7 @@ Options
 * ``--ivc_output_dir <string>`` (default ``<INPUT_FILENAME>``\ ) -- Output directory for the minimized programs
 * ``--ivc_uc_timeout <int>`` (default ``0``\ ) -- Set a timeout for each unsat core check sent to the solver
 * ``--ivc_precomputed_mcs <int>`` (default ``0``\ ) -- When computing all MIVCs, set a cardinality upper bound for the precomputed MCSs (helps prune space of candidates)
-* ``--ivc_disable_must_opt <bool>`` (default ``false``\ ) -- Disable the MUST set optimisation when computing all MIVCs. Ignored if ``--ivc_all`` is ``false``
+* ``--ivc_disable_must_opt <bool>`` (default ``false``\ ) -- Disable the MUST set optimization when computing all MIVCs. Ignored if ``--ivc_all`` is ``false``
 
 Example
 -------
