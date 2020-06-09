@@ -4,3 +4,4 @@ B ../ocamlczmq/lib
 S .
 S ./**
 S ../ocamlczmq/src
+PKG yojson
