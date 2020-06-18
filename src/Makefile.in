@@ -2,9 +2,11 @@ MENHIR=@MENHIR@
 MENHIR_FLAGS=--table
 MENHIR_INCLUDE:=menhirLib
 OCAML_PKGS=yojson,menhirLib
+OCAMLDOC_INCLUDE=menhirLib
 
-OCAMLBUILD=ocamlbuild -j 7 -pkgs $(OCAML_PKGS) \
-	-use-menhir -menhir "$(MENHIR) $(MENHIR_FLAGS)" -cflags -w,@P@U@F
+OCAMLBUILD=ocamlbuild -j 7 -pkgs $(OCAML_PKGS) -I $(MENHIR_INCLUDE) \
+	-use-menhir -menhir "$(MENHIR) $(MENHIR_FLAGS)" \
+	-docflags "-I $(OCAMLDOC_INCLUDE) -v" -cflags -w,@P@U@F
 
 # Check if git is installed and use output of git describe as version
 # number, else use version number from configure
