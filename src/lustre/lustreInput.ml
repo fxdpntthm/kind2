@@ -77,8 +77,7 @@ let rec parse lexbuf (chkpnt : LA.t LPMI.checkpoint) =
      fail env lexbuf
   | LPMI.Accepted v -> success v
   | LPMI.Rejected ->
-     LC.fail_no_position "Parser Error: Parser rejected the input."
-  
+     LC.fail_no_position "Parser Error: Parser rejected the input."  
 
 (* Parses input channel to generate an AST *)
 let ast_of_channel(in_ch: in_channel): LustreAst.t =
