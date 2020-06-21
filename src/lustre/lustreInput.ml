@@ -56,7 +56,6 @@ let fail env lexbuf =
   let pos = position_of_lexing lexbuf.lex_curr_p in
   LC.fail_at_position pos emsg
 
-(* Incremental Parsing *)
 let rec parse lexbuf (chkpnt : LA.t LPMI.checkpoint) =
   match chkpnt with
   | LPMI.InputNeeded _ ->
