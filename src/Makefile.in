@@ -4,7 +4,7 @@ MENHIR_INCLUDE:=menhirLib
 OCAML_PKGS=yojson,menhirLib
 OCAMLDOC_INCLUDE=menhirLib
 
-OCAMLBUILD=ocamlbuild -j 7 -pkgs $(OCAML_PKGS) -I $(MENHIR_INCLUDE) \
+OCAMLBUILD=ocamlbuild -j 0 -pkgs $(OCAML_PKGS) -I $(MENHIR_INCLUDE) \
 	-use-menhir -menhir "$(MENHIR) $(MENHIR_FLAGS)" \
 	-docflags "-I $(OCAMLDOC_INCLUDE) -v" -cflags -w,@P@U@F
 
