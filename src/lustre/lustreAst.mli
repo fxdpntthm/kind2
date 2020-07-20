@@ -139,7 +139,13 @@ type expr =
   (* Node calls *)
   | Call of position * ident * expr list
   | CallParam of position * ident * lustre_type list * expr list
-
+and aexpr =
+  | AIdent of position * ident
+  | AConst of position * constant
+  | AUnaryOp of position * unary_operator * aexpr
+  | ABinaryOp of position * binary_operator * aexpr * aexpr
+  | ATernaryOp of position * ternary_operator * aexpr * aexpr * aexpr
+  
 (** A Lustre type *)
 and lustre_type =
     Bool of position
