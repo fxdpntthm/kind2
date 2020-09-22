@@ -1513,6 +1513,8 @@ let split_program: LA.t -> (LA.t * LA.t)
         if is_type_or_const_decl d then (d::ds, ds')
         else (ds, d::ds')) ([], [])  
 
+let propogate_constants: tc_context -> LA.t -> tc_context tc_result = fun ctx _ -> R.ok ctx
+  
 (****************************************************************
  * The main function of the file that kicks off type checking flow  *
  ****************************************************************)  
@@ -1524,37 +1526,31 @@ let type_check_program: LA.t -> LA.t tc_result = fun prg ->
   ; let (ty_and_const_decls, node_and_contract_decls) = split_program prg in
     (* circularity check and reordering for types and constants *)
     Log.log L_trace "Phase 1.1 Building graph for types and constant decls\n---------\n"
-<<<<<<< HEAD
-    ; AD.sort_decls ty_and_const_decls >>= fun sorted_tys_consts ->
-=======
-    ; GA.sort_declarations ty_and_const_decls >>= fun sorted_tys_consts ->
->>>>>>> - fixed some error messages to be more more descriptive
-    Log.log L_trace "Sorted consts and type decls:\n%a" LA.pp_print_program sorted_tys_consts
-    (* build the base context from the type and const decls *)
-    ; build_type_and_const_context empty_context sorted_tys_consts >>= fun global_ctx ->
-      Log.log L_trace "Phase 1.2 Building graph for contracts and node decls\n---------\n"
-<<<<<<< HEAD
-    ; AD.sort_decls node_and_contract_decls >>= fun sorted_node_and_contract_decls ->
-=======
-    ; GA.sort_declarations node_and_contract_decls >>= fun sorted_node_and_contract_decls ->
->>>>>>> - fixed some error messages to be more more descriptive
-    (* type check the nodes and contract decls using this base typing context  *)
-    tc_context_of global_ctx sorted_node_and_contract_decls >>= fun tc_ctx ->
-    
-    Log.log L_trace ("===============================================\n"
-                     ^^ "Phase 1: Completed Building TC Global Context\n"
-                     ^^ "TC Context\n%a\n"
-                     ^^"===============================================\n")
-      pp_print_tc_context tc_ctx
-    ; let tc_res = (type_check_decl_grps tc_ctx [prg]) in
-      Log.log L_trace ("===============================================\n"
-                       ^^ "Phase 2: Type checking declaration Groups Done\n"
-                       ^^"===============================================\n")  
-      
-      ; report_tc_result tc_res >>
-          (Log.log L_trace "Reordered Declarations:\n--------------\n%a "
-            LA.pp_print_program (sorted_tys_consts @ sorted_node_and_contract_decls) 
-            ; R.ok (sorted_tys_consts @ sorted_node_and_contract_decls)) 
+    ; AD.sort_declarations ty_and_const_decls >>= fun sorted_tys_consts ->
+      Log.log L_trace "Sorted consts and type decls:\n%a" LA.pp_print_program sorted_tys_consts
+      (* build the base context from the type and const decls *)
+      ; build_type_and_const_context empty_context sorted_tys_consts >>= fun global_ctx ->
+        Log.log L_trace "Phase 1.2 Make best effort in propogating constants.\n---------\n"
+        ; propogate_constants global_ctx sorted_tys_consts >>= fun constant_propogated_global_ctx -> 
+          Log.log L_trace "Phase 1.3 Building graph for contracts and node decls\n---------\n"
+          ; AD.sort_declarations node_and_contract_decls >>= fun sorted_node_and_contract_decls ->
+            (* type check the nodes and contract decls using this base typing context  *)
+            tc_context_of global_ctx sorted_node_and_contract_decls >>= fun tc_ctx ->
+            
+            Log.log L_trace ("===============================================\n"
+                             ^^ "Phase 1: Completed Building TC Global Context\n"
+                             ^^ "TC Context\n%a\n"
+                             ^^"===============================================\n")
+              pp_print_tc_context tc_ctx
+            ; let tc_res = (type_check_decl_grps tc_ctx [prg]) in
+              Log.log L_trace ("===============================================\n"
+                               ^^ "Phase 2: Type checking declaration Groups Done\n"
+                               ^^"===============================================\n")  
+              
+              ; report_tc_result tc_res >>
+                  (Log.log L_trace "Reordered Declarations:\n--------------\n%a "
+                     LA.pp_print_program (sorted_tys_consts @ sorted_node_and_contract_decls) 
+                  ; R.ok (sorted_tys_consts @ sorted_node_and_contract_decls)) 
 
 (** Typechecks the [LA.declaration list] or the lustre program Ast and returns 
  *  a [Ok ()] if it succeeds or and [Error of String] if the typechecker fails*)
