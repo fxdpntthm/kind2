@@ -40,7 +40,7 @@
 
 module QId = LustreAstIdent
 open Lib
-
+module QId = LustreAstIdent
 (** Error while parsing *)
 exception Parser_error
 
