@@ -573,20 +573,22 @@ let rec mk_graph_expr2: node_summary -> LA.expr -> dependency_analysis_data list
      (List.map (fun e -> List.fold_left union_dependency_analysis_data empty_dependency_analysis_data (mk_graph_expr2 m e)) es)
   | LA.When (_, e, _) -> mk_graph_expr2 m e
   | LA.Current (_, e) -> mk_graph_expr2 m e
-  | LA.Condact (_, _, _, _, e1s, e2s) ->
-     (* (List.map2 (fun g1 g2 -> union_dependency_analysis_data g1 g2)
-      *    (mk_graph_expr2 m e2)
-      *    (mk_graph_expr2 m e3)) *)
-     [ List.fold_left union_dependency_analysis_data empty_dependency_analysis_data
-         (List.concat (List.map (mk_graph_expr2 m) (e1s @ e2s)))]
+  | LA.Condact (pos, _, _, n, e1s, e2s) ->
+     let node_call = LA.Call(pos, n, e1s) in
+     let gs = mk_graph_expr2 m node_call in
+     let default_gs = List.concat (List.map (mk_graph_expr2 m) e2s) in
+     if List.length gs != List.length default_gs
+     then failwith "In condact width of default values does not equal to node call"
+     else List.map2 union_dependency_analysis_data gs default_gs
   | LA.Activate (_, _, _, _, es) ->
      [List.fold_left union_dependency_analysis_data empty_dependency_analysis_data
         (List.concat (List.map (mk_graph_expr2 m) es))]
   | LA.Merge (_, _, cs) ->
      [List.fold_left union_dependency_analysis_data empty_dependency_analysis_data
         (List.concat (List.map (fun (_, e) -> (mk_graph_expr2 m) e) cs))] 
-  | LA.RestartEvery (p, _, es, _) ->
-     [List.fold_left union_dependency_analysis_data empty_dependency_analysis_data (List.concat (List.map (mk_graph_expr2 m) es))]
+  | LA.RestartEvery (p, n, es, _) ->
+     let node_call = LA.Call(p, n, es) in
+     mk_graph_expr2 m node_call
   | LA.Pre (_, e) ->
      List.map (map_g_pos (fun v -> QId.add_suffix "$p" v)) (mk_graph_expr2 m e) 
   | LA.Last (pos, i) -> [singleton_dependency_analysis_data "" i pos]
@@ -1049,24 +1051,24 @@ let mk_graph_eqn: node_summary -> LA.node_equation -> dependency_analysis_data g
               way we have structures *)
            (* Case 1: There is only 1 lhss and hence all 
               elements in rhs depend on that single LHS *)
-           if (List.length lhss = 1)
-           then R.ok (handle_one_lhs
-                        (List.fold_left
-                           union_dependency_analysis_data
-                           empty_dependency_analysis_data
-                           rhs_g)
-                        (List.hd lhss))
-           (* Case 1: There is only 1 rhs and hence all elements 
-              in lhs depend on that single RHS 
-              I am skeptical about this method, 
-              but we cannot do better unless we do some
-              assignment unfolding, that we cannot at this point. *)
-           else if (List.length rhs_g = 1)
-           then R.ok (List.fold_left union_dependency_analysis_data empty_dependency_analysis_data
-                        (List.map (handle_one_lhs (List.hd rhs_g)) lhss))
-           (* Case 3: The happy case RHS and LHS should have same number 
-              of items and we can do a one to one mapping*)
-           else
+           (* if (List.length lhss = 1)
+            * then R.ok (handle_one_lhs
+            *              (List.fold_left
+            *                 union_dependency_analysis_data
+            *                 empty_dependency_analysis_data
+            *                 rhs_g)
+            *              (List.hd lhss))
+            * (\* Case 1: There is only 1 rhs and hence all elements 
+            *    in lhs depend on that single RHS 
+            *    I am skeptical about this method, 
+            *    but we cannot do better unless we do some
+            *    assignment unfolding, that we cannot at this point. *\)
+            * else if (List.length rhs_g = 1)
+            * then R.ok (List.fold_left union_dependency_analysis_data empty_dependency_analysis_data
+            *              (List.map (handle_one_lhs (List.hd rhs_g)) lhss))
+            * (\* Case 3: The happy case RHS and LHS should have same number 
+            *    of items and we can do a one to one mapping*\)
+            * else *)
              (Log.log L_trace "For lhss=%a: width RHS=%a, width LHS=%a"
                   (Lib.pp_print_list LA.pp_print_struct_item ", ") lhss
                   Format.pp_print_int (List.length rhs_g)
