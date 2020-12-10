@@ -100,6 +100,8 @@ val is_machine_type_of_associated_width: (lustre_type * lustre_type) -> bool
 val is_type_or_const_decl: declaration -> bool
 (** returns [true] if it is a type or a constant declaration  *)
 
+val flatten_group_types: lustre_type list -> lustre_type list
+  
 val split_program: declaration list -> (declaration list * declaration list)
 (** Splits the program into two. First component are the type and constant declarations and
     Second component are the nodes, contract and function declarations. *)
@@ -114,7 +116,8 @@ val get_last_node_name: declaration list -> ident option
 (** Gets the name of the last node declared in the file. *)
 
 val move_node_to_last: ident -> declaration list -> declaration list
-
+(** move the node to the last position in the list *)
+  
 val sort_typed_ident: typed_ident list -> typed_ident list
 (** Sort typed identifiers  *)
 

@@ -229,6 +229,9 @@ let rec mk_graph_type: LA.lustre_type -> dependency_analysis_data = function
   | UserType (pos, i) -> singleton_dependency_analysis_data ty_suffix i pos
   | AbstractType (pos, i) -> singleton_dependency_analysis_data ty_suffix i pos
   | TupleType (pos, tys) -> List.fold_left union_dependency_analysis_data empty_dependency_analysis_data  (List.map (fun t -> mk_graph_type t) tys)
+  | GroupType (pos, tys) -> let ftys = LH.flatten_group_types tys in
+     List.fold_left union_dependency_analysis_data empty_dependency_analysis_data
+       (List.map (fun t -> mk_graph_type t) ftys)
   | RecordType (pos, ty_ids) -> List.fold_left union_dependency_analysis_data empty_dependency_analysis_data (List.map (fun (_, _, t) -> mk_graph_type t) ty_ids)
   | ArrayType (_, (ty, e)) -> union_dependency_analysis_data (mk_graph_type ty) (mk_graph_expr e)
   | TArr (_, aty, rty) -> union_dependency_analysis_data (mk_graph_type aty) (mk_graph_type rty)
@@ -564,6 +567,8 @@ let rec mk_graph_expr2: node_summary -> LA.expr -> dependency_analysis_data list
   | LA.ArrayIndex (_, e1, e2) -> mk_graph_expr2 m e1
   | LA.ArrayConcat  (_, e1, e2) ->
      [List.fold_left union_dependency_analysis_data empty_dependency_analysis_data ((mk_graph_expr2 m e1) @ (mk_graph_expr2 m e2))] 
+  | LA.GroupExpr (_, ExprList, es) ->
+     List.concat (List.map (mk_graph_expr2 m) es)
   | LA.GroupExpr (_, _, es) ->
       (List.map (fun e -> List.fold_left union_dependency_analysis_data empty_dependency_analysis_data (mk_graph_expr2 m e)) es)
   | LA.When (_, e, _) -> mk_graph_expr2 m e
@@ -608,9 +613,8 @@ let rec mk_graph_expr2: node_summary -> LA.expr -> dependency_analysis_data list
       | Some summary ->
          let sum_bds = IntMap.bindings summary in
          let ip_gs = List.concat (List.map (mk_graph_expr2 m) es) in
-         List.map (fun (i, b) ->
-             (List.fold_left union_dependency_analysis_data
-                empty_dependency_analysis_data (List.map (List.nth ip_gs) b))) sum_bds
+         List.concat (List.map (fun (i, b) ->
+             (List.map (List.nth ip_gs) b)) sum_bds)
      )
   | e -> Lib.todo (__LOC__ ^ " " ^ Lib.string_of_t Lib.pp_print_position (LH.pos_of_expr e))
 (** This graph is useful for analyzing equations assuming that the nodes/contract call
@@ -1006,13 +1010,17 @@ let mk_contract_summary: contract_summary -> LA.contract_node_decl -> contract_s
   IMap.add i export_ids m 
 (** Make contract summary that is a list of all symbols that a contract exports *)
                                             
-let mk_graph_eqn: node_summary -> LA.node_equation -> dependency_analysis_data =
-  let handle_one_lhs: dependency_analysis_data -> LA.struct_item -> dependency_analysis_data = fun rhs_g lhs ->
+let mk_graph_eqn: node_summary -> LA.node_equation -> dependency_analysis_data graph_result =
+  let handle_one_lhs: dependency_analysis_data
+                      -> LA.struct_item
+                      -> dependency_analysis_data
+    = fun rhs_g lhs ->
     match lhs with
     | LA.SingleIdent (p, i) -> connect_g_pos rhs_g i p 
     | LA.ArrayDef (p, arr, is) ->
        let arr' = QId.from_string
-                    ((QId.to_string arr) ^ "$" ^ (List.fold_left (fun acc i -> acc ^ "$" ^ QId.to_string i) "" is)) in 
+                    ((QId.to_string arr) ^ "$"
+                     ^ (List.fold_left (fun acc i -> acc ^ "$" ^ QId.to_string i) "" is)) in 
        connect_g_pos (List.fold_left (fun g i -> remove g i) rhs_g is)  arr' p
 
     (* None of these items below are supported at parsing yet. *)
@@ -1021,6 +1029,7 @@ let mk_graph_eqn: node_summary -> LA.node_equation -> dependency_analysis_data =
       | LA.FieldSelection (p, _, _)
       | LA.ArraySliceStructItem (p, _, _)
       ->  Lib.todo ("Parsing not supported" ^ __LOC__ ^ " " ^ Lib.string_of_t Lib.pp_print_position p) in
+
   fun m -> function
         | Equation (pos, (LA.StructDef (p, lhss)), e) ->
            (* We need to find the mapping of graphs from the 
@@ -1034,40 +1043,53 @@ let mk_graph_eqn: node_summary -> LA.node_equation -> dependency_analysis_data =
            (* Case 1: There is only 1 lhss and hence all 
               elements in rhs depend on that single LHS *)
            if (List.length lhss = 1)
-           then handle_one_lhs
-                  (List.fold_left
-                     union_dependency_analysis_data
-                     empty_dependency_analysis_data
-                     rhs_g)
-                  (List.hd lhss)
+           then R.ok (handle_one_lhs
+                        (List.fold_left
+                           union_dependency_analysis_data
+                           empty_dependency_analysis_data
+                           rhs_g)
+                        (List.hd lhss))
            (* Case 1: There is only 1 rhs and hence all elements 
               in lhs depend on that single RHS 
               I am skeptical about this method, 
               but we cannot do better unless we do some
               assignment unfolding, that we cannot at this point. *)
            else if (List.length rhs_g = 1)
-           then List.fold_left union_dependency_analysis_data empty_dependency_analysis_data
-                  (List.map (handle_one_lhs (List.hd rhs_g)) lhss)
+           then R.ok (List.fold_left union_dependency_analysis_data empty_dependency_analysis_data
+                        (List.map (handle_one_lhs (List.hd rhs_g)) lhss))
            (* Case 3: The happy case RHS and LHS should have same number 
               of items and we can do a one to one mapping*)
-           else List.fold_left union_dependency_analysis_data empty_dependency_analysis_data (List.map2 (handle_one_lhs) rhs_g lhss)
-        | _ -> empty_dependency_analysis_data
+           else
+             if (List.length rhs_g = List.length lhss)
+             then  (Log.log L_trace "For lhss=%a: width RHS=%a, width LHS=%a"
+                  (Lib.pp_print_list LA.pp_print_struct_item ", ") lhss
+                  Format.pp_print_int (List.length rhs_g)
+                  Format.pp_print_int (List.length lhss)
+                  ; R.ok (List.fold_left union_dependency_analysis_data
+                        empty_dependency_analysis_data
+                        (List.map2 handle_one_lhs rhs_g lhss)))
+               else (graph_error pos ("Left hand side of the equation has width "
+                                 ^ Stdlib.string_of_int (List.length lhss)
+                                 ^ " and right hand side of the equation has width "
+                                 ^ Stdlib.string_of_int (List.length rhs_g)
+                                 ^ ". They should be of same width."))
+        | _ -> R.ok (empty_dependency_analysis_data)
 (** Make a dependency graph from the equations. Each LHS has an edge that goes into its RHS definition. *)
              
-let rec mk_graph_node_items: node_summary -> LA.node_item list -> dependency_analysis_data =
+let rec mk_graph_node_items: node_summary -> LA.node_item list -> dependency_analysis_data graph_result =
   fun m -> function
-  | [] -> empty_dependency_analysis_data
+  | [] -> R.ok empty_dependency_analysis_data
   | (Body eqn) :: items ->
-     union_dependency_analysis_data
-       (mk_graph_eqn m eqn)
-       (mk_graph_node_items m items) 
+     (mk_graph_eqn m eqn) >>= fun g ->
+     (mk_graph_node_items m items) >>= fun gs ->
+       R.ok (union_dependency_analysis_data g gs)
   | _ :: items -> mk_graph_node_items m items
 (** Traverse all the node items to make a dependency graph  *)
 
 let analyze_circ_node_equations: node_summary -> LA.node_item list -> unit graph_result =
   fun m eqns ->
   Log.log L_trace "Checking circularity in node equations"
-  ; let ad = mk_graph_node_items m eqns in
+  ; mk_graph_node_items m eqns >>= fun ad -> 
     (try (R.ok (G.topological_sort ad.graph_data)) with
      | Graph.CyclicGraphException ids ->
         if List.length ids > 1

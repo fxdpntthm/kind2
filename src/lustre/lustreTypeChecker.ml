@@ -88,7 +88,7 @@ let rec infer_type_expr: tc_context -> LA.expr -> tc_type tc_result
      infer_type_expr ctx e1 >>=
        (function
         | LA.TupleType (pos, tys) as ty->
-           if List.length tys < i
+           if i >= List.length tys
            then type_error pos ("Field "
                                 ^ string_of_int i
                                 ^ " is out of bounds for tuple type "
@@ -131,8 +131,10 @@ let rec infer_type_expr: tc_context -> LA.expr -> tc_type tc_result
         >>=  (fun fld_tys -> R.ok (LA.RecordType (pos, fld_tys)))    
   | LA.GroupExpr (pos, struct_type, exprs)  ->
      (match struct_type with
-      | LA.ExprList 
-        | LA.TupleExpr ->
+      | LA.ExprList ->
+         R.seq (List.map (infer_type_expr ctx) exprs)
+         >>= fun tys -> R.ok (LA.GroupType (pos, tys))
+      | LA.TupleExpr ->
          R.seq (List.map (infer_type_expr ctx) exprs)
          >>= fun tys -> R.ok (LA.TupleType (pos, tys))
       | LA.ArrayExpr ->
@@ -237,7 +239,7 @@ let rec infer_type_expr: tc_context -> LA.expr -> tc_type tc_result
      >>= fun r_ty ->
      R.seq (List.map (infer_type_expr ctx) defaults)
      >>= (fun d_tys -> 
-       R.ifM (eq_lustre_type ctx r_ty (TupleType (pos, d_tys)))
+       R.ifM (eq_lustre_type ctx r_ty (GroupType (pos, d_tys)))
          (R.ok r_ty)
          (type_error pos "Defaults do not have the same type as node call"))
   | LA.Activate (pos, node, cond, rcond, args) ->
@@ -285,7 +287,7 @@ let rec infer_type_expr: tc_context -> LA.expr -> tc_type tc_result
         R.seq (List.map (infer_type_expr ctx) args)
         >>= (fun arg_tys ->
           if List.length arg_tys = 1 then R.ok (List.hd arg_tys)
-          else R.ok (LA.TupleType (pos, arg_tys))) in
+          else R.ok (LA.GroupType (pos, arg_tys))) in
       (match (lookup_ty ctx i) with
             | Some (TArr (_, exp_arg_tys, exp_ret_tys)) ->
                infer_type_node_args ctx arg_exprs
@@ -387,8 +389,13 @@ and check_type_expr: tc_context -> LA.expr -> tc_type -> unit tc_result
   | GroupExpr (pos, group_ty, es) ->
      (match group_ty with
       (* These should be tuple type  *)
-      | ExprList
-        | TupleExpr ->
+      | ExprList ->
+         R.seq (List.map (infer_type_expr ctx) es) >>= fun inf_tys ->
+         let inf_ty = LA.GroupType (pos, inf_tys) in
+         (R.guard_with (eq_lustre_type ctx exp_ty inf_ty)
+            (type_error pos ("Expected type " ^ string_of_tc_type exp_ty
+                             ^ " but found " ^ string_of_tc_type inf_ty)))
+      | TupleExpr ->
          R.seq (List.map (infer_type_expr ctx) es) >>= fun inf_tys ->
          let inf_ty = LA.TupleType (pos, inf_tys) in
          (R.guard_with (eq_lustre_type ctx exp_ty inf_ty)
@@ -474,7 +481,7 @@ and check_type_expr: tc_context -> LA.expr -> tc_type -> unit tc_result
      check_type_expr ctx c (Bool pos)
      >> check_type_expr ctx (Call (pos, node, args)) exp_ty
      >>  R.seq (List.map (infer_type_expr ctx) defaults)
-     >>= fun d_tys -> R.guard_with (eq_lustre_type ctx exp_ty (TupleType (pos, d_tys)))
+     >>= fun d_tys -> R.guard_with (eq_lustre_type ctx exp_ty (GroupType (pos, d_tys)))
                         (type_error pos "Condact defaults do not have the same type as node call")
   | Activate (pos, node, cond, rcond, args) -> 
      check_type_expr ctx cond (Bool pos)
@@ -509,7 +516,7 @@ and check_type_expr: tc_context -> LA.expr -> tc_type -> unit tc_result
      R.seq (List.map (infer_type_expr ctx) args)
      >>= fun arg_tys ->
      let arg_ty = if List.length arg_tys = 1 then List.hd arg_tys
-                  else TupleType (pos, arg_tys) in 
+                  else GroupType (pos, arg_tys) in 
      check_type_expr ctx (LA.Ident (pos, i)) (TArr (pos, arg_ty, exp_ty))
   | CallParam _ -> Lib.todo __LOC__
 (** Type checks an expression and returns [ok] 
@@ -897,7 +904,7 @@ and check_type_struct_item: tc_context -> LA.struct_item -> tc_type -> unit tc_r
          type_error pos ("Could not find Identifier " ^ QI.to_string i)
       | Some ty -> R.ok ty) >>= fun inf_ty ->  
      R.ifM (R.seqM (||) false [ eq_lustre_type ctx exp_ty inf_ty
-                              ; eq_lustre_type ctx exp_ty (TupleType (pos,[inf_ty])) ])
+                              ; eq_lustre_type ctx exp_ty (GroupType (pos,[inf_ty])) ])
        (if member_val ctx i
         then type_error pos ("Constant " ^ QI.to_string i ^ " cannot be re-defined")
         else R.ok ())
@@ -928,8 +935,8 @@ and check_type_struct_def: tc_context -> LA.eq_lhs -> tc_type -> unit tc_result
   ; let lhs_vars = QSI.flatten (List.map LH.vars_of_struct_item lhss) in
     if (QSI.for_all (fun i -> not (member_val ctx i)) lhs_vars)
     then (match exp_ty with
-          | TupleType (_, exp_ty_lst) ->
-             Log.log L_trace "Tuple Type: %a" LA.pp_print_lustre_type exp_ty
+          | GroupType (p, exp_ty_lst') -> let exp_ty_lst = LH.flatten_group_types exp_ty_lst' in
+             Log.log L_trace "GroupType Type: %a" LA.pp_print_lustre_type exp_ty
             ; if List.length lhss = 1
               (* Case 1. the LHS is just one identifier 
                * so we have to check if the exp_type is the same as LHS *)
@@ -938,8 +945,8 @@ and check_type_struct_def: tc_context -> LA.eq_lhs -> tc_type -> unit tc_result
                 if List.length lhss = List.length exp_ty_lst
                 then R.seq_ (List.map2 (check_type_struct_item ctx) lhss exp_ty_lst)
                 else type_error pos ("Term structure on left "
-                                     ^ Lib.string_of_t (Lib.pp_print_list LA.pp_print_struct_item ", ") lhss
                                      ^" hand side of the equation"
+                                     ^ Lib.string_of_t (Lib.pp_print_list LA.pp_print_struct_item ", ") lhss
                                      ^ " does not match expected type "
                                      ^ Lib.string_of_t LA.pp_print_lustre_type exp_ty 
                                      ^ " on right hand side of the node equation")
@@ -1241,8 +1248,8 @@ and build_node_fun_ty: Lib.position -> tc_context
                   (List.map LH.extract_ip_ty args) in   
   let ops = List.map snd (List.map LH.extract_op_ty rets) in
   let ips = List.map snd (List.map LH.extract_ip_ty args) in
-  let ret_ty = if List.length ops = 1 then List.hd ops else LA.TupleType (pos, ops) in
-  let arg_ty = if List.length ips = 1 then List.hd ips else LA.TupleType (pos, ips) in
+  let ret_ty = if List.length ops = 1 then List.hd ops else LA.GroupType (pos, ops) in
+  let arg_ty = if List.length ips = 1 then List.hd ips else LA.GroupType (pos, ips) in
   check_type_well_formed fun_ctx ret_ty
   >> check_type_well_formed fun_ctx arg_ty
   >>  R.ok (LA.TArr (pos, arg_ty, ret_ty))
@@ -1280,12 +1287,19 @@ and eq_lustre_type : tc_context -> LA.lustre_type -> LA.lustre_type -> bool tc_r
      if List.length tys1 = List.length tys2
      then (R.seqM (&&) true (List.map2 (eq_lustre_type ctx) tys1 tys2))
      else R.ok false
+  (* For Equality for group types, flatten out the structures  *)
+  | GroupType (_, tys1), GroupType (_, tys2) ->
+     let (ftys1, ftys2) = LH.flatten_group_types tys1, LH.flatten_group_types tys2 in 
+     if List.length ftys1 = List.length ftys2
+     then (R.seqM (&&) true (List.map2 (eq_lustre_type ctx) ftys1 ftys2))
+     else R.ok false
   | RecordType (_, tys1), RecordType (_, tys2) ->
      R.seq (List.map2 (eq_typed_ident ctx)
               (LH.sort_typed_ident tys1)
               (LH.sort_typed_ident tys2))
      >>= fun isEqs -> R.ok (List.fold_left (&&) true isEqs)
-  | ArrayType (pos1, arr1), ArrayType (pos2, arr2) -> eq_type_array ctx arr1 arr2 
+  | ArrayType (pos1, arr1), ArrayType (pos2, arr2) ->
+     eq_type_array ctx arr1 arr2 
   | EnumType (_, n1, is1), EnumType (_, n2, is2) ->
      R.ok (n1 = n2 && (List.fold_left (&&) true (List.map2 (=) (LH.sort_idents is1) (LH.sort_idents is2))))
 
@@ -1306,11 +1320,17 @@ and eq_lustre_type : tc_context -> LA.lustre_type -> LA.lustre_type -> bool tc_r
           eq_lustre_type ctx ty ty_alias
      else R.ok false
   (* Another special case for tuple equality type *)
-  | TupleType (_, tys), t
-    | t, TupleType (_, tys) ->
+  (* | TupleType (_, tys), t
+   *   | t, TupleType (_, tys) ->
+   *    if List.length tys = 1
+   *    then (eq_lustre_type ctx (List.hd tys) t)
+   *    else R.ok false *)
+  (* Equality for group type is by flattening out structures *)
+  | GroupType (_, tys), t
+    | t, GroupType (_, tys) ->
      if List.length tys = 1
      then (eq_lustre_type ctx (List.hd tys) t)
-     else R.ok false  
+     else R.ok false
   | _, _ -> R.ok false
 (** Compute Equality for lustre types  *)
 
