@@ -570,10 +570,14 @@ let rec mk_graph_expr2: node_summary -> LA.expr -> dependency_analysis_data list
   | LA.ArrayIndex (_, e1, e2) -> mk_graph_expr2 m e1
   | LA.ArrayConcat  (_, e1, e2) ->
      [List.fold_left union_dependency_analysis_data empty_dependency_analysis_data ((mk_graph_expr2 m e1) @ (mk_graph_expr2 m e2))] 
-  | LA.GroupExpr (_, ExprList, es) ->
-     List.concat (List.map (mk_graph_expr2 m) es)
+  | LA.GroupExpr (_, ExprList, es) as e->
+     Log.log L_trace "this is an ExprList %a" LA.pp_print_expr e   
+     ; List.concat (List.map (mk_graph_expr2 m) es)
   | LA.GroupExpr (_, _, es) ->
-     (List.map (fun e -> List.fold_left union_dependency_analysis_data empty_dependency_analysis_data (mk_graph_expr2 m e)) es)
+     [List.fold_left
+        union_dependency_analysis_data
+        empty_dependency_analysis_data
+        (List.concat (List.map (mk_graph_expr2 m) es))]
   | LA.When (_, e, _) -> mk_graph_expr2 m e
   | LA.Current (_, e) -> mk_graph_expr2 m e
   | LA.Condact (pos, _, _, n, e1s, e2s) ->
@@ -583,9 +587,9 @@ let rec mk_graph_expr2: node_summary -> LA.expr -> dependency_analysis_data list
      if List.length gs != List.length default_gs
      then fail_at_position pos "In condact width of default values does not match width of node call"
      else List.map2 union_dependency_analysis_data gs default_gs
-  | LA.Activate (_, _, _, _, es) ->
-     [List.fold_left union_dependency_analysis_data empty_dependency_analysis_data
-        (List.concat (List.map (mk_graph_expr2 m) es))]
+  | LA.Activate (pos, n, _, _, es) ->
+     let node_call = LA.Call(pos, n, es) in
+     mk_graph_expr2 m node_call
   | LA.Merge (_, _, cs) ->
      [List.fold_left union_dependency_analysis_data empty_dependency_analysis_data
         (List.concat (List.map (fun (_, e) -> (mk_graph_expr2 m) e) cs))] 
