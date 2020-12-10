@@ -528,14 +528,14 @@ let rec mk_graph_expr2: node_summary -> LA.expr -> dependency_analysis_data list
   | LA.Const _ -> [empty_dependency_analysis_data]
   | LA.RecordExpr (pos, i, ty_ids) ->
      [List.fold_left union_dependency_analysis_data
-       (singleton_dependency_analysis_data "" i pos)
-       (List.concat (List.map (fun ty_id -> mk_graph_expr2 m (snd ty_id)) ty_ids))]
+        (singleton_dependency_analysis_data "" i pos)
+        (List.concat (List.map (fun ty_id -> mk_graph_expr2 m (snd ty_id)) ty_ids))]
   | LA.StructUpdate (_, e1, _, e2) ->
      [List.fold_left union_dependency_analysis_data empty_dependency_analysis_data ((mk_graph_expr2 m e1) @ (mk_graph_expr2 m e2))] 
   | LA.UnaryOp (_, _, e)
     | LA.ConvOp (_, _, e) -> mk_graph_expr2 m e
   | LA.BinaryOp (_, _, e1, e2)
-  | LA.CompOp (_, _, e1, e2) ->
+    | LA.CompOp (_, _, e1, e2) ->
      [List.fold_left union_dependency_analysis_data empty_dependency_analysis_data ((mk_graph_expr2 m e1) @ (mk_graph_expr2 m e2))] 
   | LA.TernaryOp (p, _, e1, e2, e3) ->
      let g1 =  List.fold_left union_dependency_analysis_data empty_dependency_analysis_data (mk_graph_expr2 m e1) in
@@ -545,32 +545,32 @@ let rec mk_graph_expr2: node_summary -> LA.expr -> dependency_analysis_data list
                          ^^ "\ne3: %a"
                          ^^ "\ng2 length %a: %a"
                          ^^ "\ng3 length %a: %a")
-         LA.pp_print_expr e2
-         LA.pp_print_expr e3
-         Format.pp_print_int (List.length g2)
-         (Lib.pp_print_list G.pp_print_graph ", ") (List.map (fun g -> g.graph_data) g2)
-         Format.pp_print_int (List.length g3)
-         (Lib.pp_print_list G.pp_print_graph ", ") (List.map (fun g -> g.graph_data) g3)
-     ; failwith "width of each branch is not the same.")
+          LA.pp_print_expr e2
+          LA.pp_print_expr e3
+          Format.pp_print_int (List.length g2)
+          (Lib.pp_print_list G.pp_print_graph ", ") (List.map (fun g -> g.graph_data) g2)
+          Format.pp_print_int (List.length g3)
+          (Lib.pp_print_list G.pp_print_graph ", ") (List.map (fun g -> g.graph_data) g3)
+       ; failwith "width of each branch is not the same.")
      else
        List.map (fun g -> union_dependency_analysis_data g1 g)
          (List.map2 (fun g g' -> union_dependency_analysis_data g g') g2 g3)
   | LA.RecordProject (_, e, _)
-  | LA.TupleProject (_, e, _) -> mk_graph_expr2 m e
+    | LA.TupleProject (_, e, _) -> mk_graph_expr2 m e
   | LA.ArrayConstr (_, e1, e2) ->
      [List.fold_left union_dependency_analysis_data empty_dependency_analysis_data ((mk_graph_expr2 m e1) @ (mk_graph_expr2 m e2))] 
   | LA.ArraySlice (_, e1, (e2, e3)) ->
      [List.fold_left union_dependency_analysis_data empty_dependency_analysis_data
-       (( mk_graph_expr2 m e1)
-       @ ( mk_graph_expr2 m e2)
-       @ ( mk_graph_expr2 m e3)) ]
+        (( mk_graph_expr2 m e1)
+         @ ( mk_graph_expr2 m e2)
+         @ ( mk_graph_expr2 m e3)) ]
   | LA.ArrayIndex (_, e1, e2) -> mk_graph_expr2 m e1
   | LA.ArrayConcat  (_, e1, e2) ->
      [List.fold_left union_dependency_analysis_data empty_dependency_analysis_data ((mk_graph_expr2 m e1) @ (mk_graph_expr2 m e2))] 
   | LA.GroupExpr (_, ExprList, es) ->
      List.concat (List.map (mk_graph_expr2 m) es)
   | LA.GroupExpr (_, _, es) ->
-      (List.map (fun e -> List.fold_left union_dependency_analysis_data empty_dependency_analysis_data (mk_graph_expr2 m e)) es)
+     (List.map (fun e -> List.fold_left union_dependency_analysis_data empty_dependency_analysis_data (mk_graph_expr2 m e)) es)
   | LA.When (_, e, _) -> mk_graph_expr2 m e
   | LA.Current (_, e) -> mk_graph_expr2 m e
   | LA.Condact (_, _, _, _, e1s, e2s) ->
@@ -578,13 +578,13 @@ let rec mk_graph_expr2: node_summary -> LA.expr -> dependency_analysis_data list
       *    (mk_graph_expr2 m e2)
       *    (mk_graph_expr2 m e3)) *)
      [ List.fold_left union_dependency_analysis_data empty_dependency_analysis_data
-       (List.concat (List.map (mk_graph_expr2 m) (e1s @ e2s)))]
+         (List.concat (List.map (mk_graph_expr2 m) (e1s @ e2s)))]
   | LA.Activate (_, _, _, _, es) ->
      [List.fold_left union_dependency_analysis_data empty_dependency_analysis_data
-       (List.concat (List.map (mk_graph_expr2 m) es))]
+        (List.concat (List.map (mk_graph_expr2 m) es))]
   | LA.Merge (_, _, cs) ->
      [List.fold_left union_dependency_analysis_data empty_dependency_analysis_data
-       (List.concat (List.map (fun (_, e) -> (mk_graph_expr2 m) e) cs))] 
+        (List.concat (List.map (fun (_, e) -> (mk_graph_expr2 m) e) cs))] 
   | LA.RestartEvery (p, _, es, _) ->
      [List.fold_left union_dependency_analysis_data empty_dependency_analysis_data (List.concat (List.map (mk_graph_expr2 m) es))]
   | LA.Pre (_, e) ->
@@ -606,15 +606,22 @@ let rec mk_graph_expr2: node_summary -> LA.expr -> dependency_analysis_data list
        ; failwith "width of rhs of arrow is not equal to lhs of arrow."
        )
      else 
-     List.map2 (fun l r -> union_dependency_analysis_data l r ) e1_g e2_g
+       List.map2 (fun l r -> union_dependency_analysis_data l r ) e1_g e2_g
   | LA.Call (p, i, es) ->
      (match IMap.find_opt i m with
       | None -> failwith ("Cannot find summary of node " ^ QId.to_string i ^ ". This should not happen.")
       | Some summary ->
          let sum_bds = IntMap.bindings summary in
          let ip_gs = List.concat (List.map (mk_graph_expr2 m) es) in
-         List.concat (List.map (fun (i, b) ->
-             (List.map (List.nth ip_gs) b)) sum_bds)
+         (* For each output stream, return the associated graph of the input expression 
+            whose current value it depends on. If the output stream does not depend on 
+            any input stream's current value, return an empty graph. *)
+         List.map (fun (i, b) ->
+             if List.length b = 0
+             then empty_dependency_analysis_data
+             else (List.fold_left union_dependency_analysis_data empty_dependency_analysis_data
+                     (List.map (List.nth ip_gs) b))
+           ) sum_bds
      )
   | e -> Lib.todo (__LOC__ ^ " " ^ Lib.string_of_t Lib.pp_print_position (LH.pos_of_expr e))
 (** This graph is useful for analyzing equations assuming that the nodes/contract call
@@ -1060,19 +1067,20 @@ let mk_graph_eqn: node_summary -> LA.node_equation -> dependency_analysis_data g
            (* Case 3: The happy case RHS and LHS should have same number 
               of items and we can do a one to one mapping*)
            else
-             if (List.length rhs_g = List.length lhss)
-             then  (Log.log L_trace "For lhss=%a: width RHS=%a, width LHS=%a"
+             (Log.log L_trace "For lhss=%a: width RHS=%a, width LHS=%a"
                   (Lib.pp_print_list LA.pp_print_struct_item ", ") lhss
                   Format.pp_print_int (List.length rhs_g)
                   Format.pp_print_int (List.length lhss)
-                  ; R.ok (List.fold_left union_dependency_analysis_data
+                  ;
+             if (List.length rhs_g = List.length lhss)
+             then  (R.ok (List.fold_left union_dependency_analysis_data
                         empty_dependency_analysis_data
                         (List.map2 handle_one_lhs rhs_g lhss)))
                else (graph_error pos ("Left hand side of the equation has width "
                                  ^ Stdlib.string_of_int (List.length lhss)
                                  ^ " and right hand side of the equation has width "
                                  ^ Stdlib.string_of_int (List.length rhs_g)
-                                 ^ ". They should be of same width."))
+                                 ^ ". They should be of same width.")))
         | _ -> R.ok (empty_dependency_analysis_data)
 (** Make a dependency graph from the equations. Each LHS has an edge that goes into its RHS definition. *)
              
