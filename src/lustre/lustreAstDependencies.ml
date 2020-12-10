@@ -32,12 +32,15 @@
 
    @author Apoorv Ingle *)
 
+
 module R = Res
 module LA = LustreAst
 module LH = LustreAstHelpers
 module QId = LustreAstIdent
 module QISet = QId.IdentSet
 
+open LustreReporting
+             
 type 'a graph_result = ('a, Lib.position * string) result  
 
 let graph_error pos err = Error (pos, err)
@@ -480,7 +483,7 @@ let rec extract_decls: ('a IMap.t * id_pos_map) -> QId.t list -> ('a list) graph
   | i :: is ->
      (match (IMap.find_opt i decl_map) with
       | None -> (match (find_id_pos i_pos_map i) with
-                 | None -> failwith ("Identifier " ^ QId.to_string i ^ " not found. This should not happen")
+                 | None -> fail_no_position ("Identifier " ^ QId.to_string i ^ " not found. This should not happen")
                  | Some p -> graph_error p ("Identifier " ^ QId.to_string i ^ " is not defined."))
       | Some i' -> R.ok i') >>= fun d ->
      extract_decls (decl_map, i_pos_map) is >>= fun ds ->
@@ -551,7 +554,7 @@ let rec mk_graph_expr2: node_summary -> LA.expr -> dependency_analysis_data list
           (Lib.pp_print_list G.pp_print_graph ", ") (List.map (fun g -> g.graph_data) g2)
           Format.pp_print_int (List.length g3)
           (Lib.pp_print_list G.pp_print_graph ", ") (List.map (fun g -> g.graph_data) g3)
-       ; failwith "width of each branch is not the same.")
+       ; fail_at_position p "width of each branch is not the same.")
      else
        List.map (fun g -> union_dependency_analysis_data g1 g)
          (List.map2 (fun g g' -> union_dependency_analysis_data g g') g2 g3)
@@ -578,7 +581,7 @@ let rec mk_graph_expr2: node_summary -> LA.expr -> dependency_analysis_data list
      let gs = mk_graph_expr2 m node_call in
      let default_gs = List.concat (List.map (mk_graph_expr2 m) e2s) in
      if List.length gs != List.length default_gs
-     then failwith "In condact width of default values does not equal to node call"
+     then fail_at_position pos "In condact width of default values does not match width of node call"
      else List.map2 union_dependency_analysis_data gs default_gs
   | LA.Activate (_, _, _, _, es) ->
      [List.fold_left union_dependency_analysis_data empty_dependency_analysis_data
@@ -593,7 +596,7 @@ let rec mk_graph_expr2: node_summary -> LA.expr -> dependency_analysis_data list
      List.map (map_g_pos (fun v -> QId.add_suffix "$p" v)) (mk_graph_expr2 m e) 
   | LA.Last (pos, i) -> [singleton_dependency_analysis_data "" i pos]
   | LA.Fby (p, e1, _, e2)
-    | LA.Arrow (p, e1, e2) ->
+    | LA.Arrow (p, e1, e2) as e ->
      let e1_g, e2_g =  (mk_graph_expr2 m e1), (mk_graph_expr2 m e2) in 
      if (List.length e1_g != List.length e2_g) then
        (
@@ -605,13 +608,15 @@ let rec mk_graph_expr2: node_summary -> LA.expr -> dependency_analysis_data list
            (Lib.pp_print_list G.pp_print_graph ",") (List.map (fun g -> g.graph_data) e1_g)
            LA.pp_print_expr e2
            (Lib.pp_print_list G.pp_print_graph ",") (List.map (fun g -> g.graph_data) e2_g)
-       ; failwith "width of rhs of arrow is not equal to lhs of arrow."
+       ; fail_at_position p ("In expression " ^ (Lib.string_of_t LA.pp_print_expr e)  
+         ^ " width of right hand side is not equal to left hand side of arrow.")
        )
      else 
        List.map2 (fun l r -> union_dependency_analysis_data l r ) e1_g e2_g
   | LA.Call (p, i, es) ->
      (match IMap.find_opt i m with
-      | None -> failwith ("Cannot find summary of node " ^ QId.to_string i ^ ". This should not happen.")
+      | None -> fail_at_position p
+                  ("Cannot find summary of node " ^ QId.to_string i ^ ". This should not happen.")
       | Some summary ->
          let sum_bds = IntMap.bindings summary in
          let ip_gs = List.concat (List.map (mk_graph_expr2 m) es) in
@@ -803,12 +808,12 @@ let sort_and_check_contract_eqns: dependency_analysis_data
           (match (find_id_pos ad'.id_pos_data one_id) with
               | None ->
                  Log.log L_trace "Position map: %a" pp_print_id_pos ad'.id_pos_data
-                 ; failwith ("Cyclic dependency found but cannot find position for identifier "
+                 ; fail_no_position ("Cyclic dependency found but cannot find position for identifier "
                                   ^ (QId.to_string one_id) ^ " This should not happen!") 
               | Some p -> graph_error p
                             ("Cyclic dependency detected in definition of identifiers: "
                              ^ Lib.string_of_t (Lib.pp_print_list Format.pp_print_string ", ") ids))
-        else failwith "Cyclic dependency with no ids detected. This should not happen!")
+        else fail_no_position "Cyclic dependency with no ids detected. This should not happen!")
     >>= fun sorted_ids ->
 
     let equational_vars = List.filter (fun i -> not (QISet.mem i ids_to_skip)) (List.rev sorted_ids) in
@@ -841,12 +846,12 @@ let sort_declarations: LA.t -> LA.t graph_result
    | Graph.CyclicGraphException ids ->
       if List.length ids > 1
       then (match (find_id_pos ad.id_pos_data (QId.from_string (List.hd ids))) with
-            | None -> failwith ("Cyclic dependency found but Cannot find position for identifier "
+            | None -> fail_no_position ("Cyclic dependency found but Cannot find position for identifier "
                                 ^ (List.hd ids) ^ " This should not happen!") 
             | Some p -> graph_error p
                           ("Cyclic dependency detected in definition of identifiers: "
                            ^ Lib.string_of_t (Lib.pp_print_list Format.pp_print_string ", ") ids))
-      else failwith "Cyclic dependency with no ids detected. This should not happen!") >>= fun sorted_ids ->
+      else fail_no_position "Cyclic dependency with no ids detected. This should not happen!") >>= fun sorted_ids ->
   let dependency_sorted_ids = List.rev sorted_ids in
   Log.log L_trace "sorted ids: %a" (Lib.pp_print_list LA.pp_print_ident ",")  dependency_sorted_ids
   ; extract_decls (decl_map, ad.id_pos_data) dependency_sorted_ids
@@ -932,9 +937,10 @@ let rec vars_with_flattened_nodes: node_summary -> LA.expr -> QISet.t = fun m ->
      QISet.union (vars_with_flattened_nodes m e1) (vars_with_flattened_nodes m e2)
 
   (* Node calls *)
-  | Call (_, i, es) ->
+  | Call (p, i, es) ->
      (match IMap.find_opt i m with
-      | None -> failwith ("cannot find node call summary for "^ QId.to_string i ^". Should not happen!")
+      | None -> fail_at_position p
+                  ("Cannot find node call summary for "^ QId.to_string i ^". Should not happen!")
       | Some ns ->
          let sum_bds = IntMap.bindings ns in
          let es' = List.map (vars_with_flattened_nodes m) es in
@@ -1006,10 +1012,10 @@ let get_contract_exports: contract_summary -> LA.contract_node_equation -> LA.id
     | LA.GhostVar (LA.UntypedConst (_, i, _))
     | LA.GhostVar (LA.TypedConst (_, i, _, _)) -> [i]
   | LA.Mode (_, i, _, _) -> [i]
-  | LA.ContractCall (_, cc, _, _, cc') ->
+  | LA.ContractCall (p, cc, _, _, cc') ->
      (match (IMap.find_opt cc m) with
      | Some ids -> List.map (fun i -> QId.add_qualified_prefix (QId.to_string cc') i) ids
-     | None -> failwith ("Undeclared contract " ^ QId.to_string cc ^ ". Should not happen!"))  
+     | None -> fail_at_position p ("Undeclared contract " ^ QId.to_string cc ^ ". Should not happen!"))  
  | _ -> []
 (** Traverses all the contract equations to make a contract export list. *)
 
@@ -1104,12 +1110,12 @@ let analyze_circ_node_equations: node_summary -> LA.node_item list -> unit graph
      | Graph.CyclicGraphException ids ->
         if List.length ids > 1
         then (match (find_id_pos ad.id_pos_data (QId.from_string (List.hd ids))) with
-              | None -> failwith ("Cyclic dependency found but cannot find position for identifier "
+              | None -> fail_no_position ("Cyclic dependency found but cannot find position for identifier "
                                   ^ (List.hd ids) ^ " This should not happen!") 
               | Some p -> graph_error p
                             ("Cyclic dependency detected in equations with identifiers: "
                              ^ Lib.string_of_t (Lib.pp_print_list Format.pp_print_string ", ") ids))
-        else failwith "Cyclic dependency with no ids detected. This should not happen!")
+        else fail_no_position "Cyclic dependency with no ids detected. This should not happen!")
     >> R.ok ()
 (** Check for node equations, we need to flatten the node calls using [node_summary] generated *)
     
