@@ -787,11 +787,8 @@ and check_type_const_decl: tc_context -> LA.const_decl -> tc_type -> unit tc_res
                              ^ " expects type " ^ string_of_tc_type exp_ty
                              ^ " but expression is of type " ^ string_of_tc_type inf_ty))
 
-and check_type_node_decl: Lib.position -> tc_context -> LA.node_decl -> tc_type -> unit tc_result
-  = fun pos ctx
-        (node_name, is_extern, params, input_vars, output_vars, ldecls, items, contract)
-        exp_ty ->
-  let local_var_binding: tc_context -> LA.node_local_decl -> tc_context tc_result = fun ctx ->
+
+and local_var_binding: tc_context -> LA.node_local_decl -> tc_context tc_result = fun ctx ->
     function
     | LA.NodeConstDecl (pos, const_decls) ->
        Log.log L_trace "Extracting typing context from const declaration: %a"
@@ -800,7 +797,11 @@ and check_type_node_decl: Lib.position -> tc_context -> LA.node_decl -> tc_type 
     | LA.NodeVarDecl (pos, (_, v, ty, _)) ->
        check_type_well_formed ctx ty
        >> R.ok (add_ty ctx v ty)
-  in
+                     
+and check_type_node_decl: Lib.position -> tc_context -> LA.node_decl -> tc_type -> unit tc_result
+  = fun pos ctx
+        (node_name, is_extern, params, input_vars, output_vars, ldecls, items, contract)
+        exp_ty ->
   Log.log L_trace "TC declaration node: %a {" LA.pp_print_ident node_name
 
   ; let arg_ids = QSI.of_list (List.map (fun a -> LH.extract_ip_ty a |> fst) input_vars) in
@@ -881,9 +882,20 @@ and do_node_eqn: tc_context -> LA.node_equation -> unit tc_result = fun ctx ->
       ; infer_type_expr new_ctx e >>= fun ty ->
       Log.log L_trace "RHS has type %a for lhs %a" LA.pp_print_lustre_type ty LA.pp_print_eq_lhs lhs
       ; check_type_struct_def (ctx_from_lhs ctx lhs) lhs ty
-  | LA.Automaton (pos, _, _, _) ->
-    R.ok (Log.log L_trace "Skipping Automation")
+  | LA.Automaton (pos, _, ss, _) ->
+     R.ok (Log.log L_trace "Skipping Automation") >>
+       R.seq_ (List.map (check_type_state ctx) ss) 
 
+and check_type_state: tc_context -> LA.state -> unit tc_result = fun ctx ->
+  function
+  | LA.State (pos, sname, _, local_streams, eqns, _, _) ->
+     (* add the local variable bindings of the state into the  *)
+     R.seq (List.map (local_var_binding ctx) local_streams) >>= fun ctx' ->
+     let state_ctx = List.fold_left union ctx ctx' in 
+     (* check the equations *)
+     R.seq_ (List.map (do_node_eqn state_ctx) eqns) >>
+     R.ok ()
+    
 and do_item: tc_context -> LA.node_item -> unit tc_result = fun ctx ->
   function
   | LA.Body eqn -> do_node_eqn ctx eqn
