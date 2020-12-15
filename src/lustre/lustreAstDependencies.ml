@@ -598,7 +598,7 @@ let rec mk_graph_expr2: node_summary -> LA.expr -> dependency_analysis_data list
      mk_graph_expr2 m node_call
   | LA.Pre (_, e) ->
      List.map (map_g_pos (fun v -> QId.add_suffix "$p" v)) (mk_graph_expr2 m e) 
-  | LA.Last (pos, i) -> [singleton_dependency_analysis_data "" i pos]
+  | LA.Last (pos, i) -> [singleton_dependency_analysis_data "$l" i pos]
   | LA.Fby (p, e1, _, e2)
     | LA.Arrow (p, e1, e2) as e ->
      let e1_g, e2_g =  (mk_graph_expr2 m e1), (mk_graph_expr2 m e2) in 
@@ -1097,14 +1097,42 @@ let mk_graph_eqn: node_summary -> LA.node_equation -> dependency_analysis_data g
 (** Make a dependency graph from the equations. Each LHS has an edge that goes into its RHS definition. *)
              
 let rec mk_graph_node_items: node_summary -> LA.node_item list -> dependency_analysis_data graph_result =
-  fun m -> function
+  fun m ->
+  function
   | [] -> R.ok empty_dependency_analysis_data
   | (Body eqn) :: items ->
      (mk_graph_eqn m eqn) >>= fun g ->
      (mk_graph_node_items m items) >>= fun gs ->
-       R.ok (union_dependency_analysis_data g gs)
+     R.ok (union_dependency_analysis_data g gs)
   | _ :: items -> mk_graph_node_items m items
 (** Traverse all the node items to make a dependency graph  *)
+
+let analyze_automaton_states: node_summary -> LA.state -> unit graph_result =
+  fun m ->
+  function
+  | State (_, i, _, _, eqns, _, _) ->
+     R.seq (List.map (mk_graph_eqn m) eqns) >>= fun gs -> 
+     let ad = List.fold_left union_dependency_analysis_data empty_dependency_analysis_data gs in
+     (try (R.ok (G.topological_sort ad.graph_data)) with
+      | Graph.CyclicGraphException ids ->
+         if List.length ids > 1
+         then (match (find_id_pos ad.id_pos_data (QId.from_string (List.hd ids))) with
+               | None -> fail_no_position ("Cyclic dependency found but cannot find position for identifier "
+                                           ^ (List.hd ids) ^ " This should not happen!") 
+               | Some p -> graph_error p
+                             ("Cyclic dependency detected in equations with identifiers: "
+                              ^ Lib.string_of_t (Lib.pp_print_list Format.pp_print_string ", ") ids))
+         else fail_no_position "Cyclic dependency with no ids detected. This should not happen!")
+     >> R.ok ()
+     
+let rec analyze_circ_automatons: node_summary -> LA.node_item list -> unit graph_result =
+  fun m ->
+  function
+  | [] -> R.ok ()
+  | (LA.Body (LA.Automaton (_, _, states, _))) :: items ->
+     (R.seq_ (List.map (analyze_automaton_states m) states))
+     >> analyze_circ_automatons m items
+  | _ :: items -> analyze_circ_automatons m items
 
 let analyze_circ_node_equations: node_summary -> LA.node_item list -> unit graph_result =
   fun m eqns ->
@@ -1120,6 +1148,7 @@ let analyze_circ_node_equations: node_summary -> LA.node_item list -> unit graph
                             ("Cyclic dependency detected in equations with identifiers: "
                              ^ Lib.string_of_t (Lib.pp_print_list Format.pp_print_string ", ") ids))
         else fail_no_position "Cyclic dependency with no ids detected. This should not happen!")
+    >> analyze_circ_automatons m eqns
     >> R.ok ()
 (** Check for node equations, we need to flatten the node calls using [node_summary] generated *)
     
