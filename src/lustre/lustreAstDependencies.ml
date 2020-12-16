@@ -142,7 +142,6 @@ let pp_print_id_pos ppf m =
         (Lib.pp_print_list Lib.pp_print_position ", ") b)  ", "
     ppf (IMap.bindings m)
 
-
   
 let empty_node_summary: node_summary = IMap.empty
 
@@ -287,7 +286,6 @@ let mk_graph_const_decl: LA.const_decl -> dependency_analysis_data
                                        (union_dependency_analysis_data
                                           (mk_graph_expr e) (mk_graph_type ty)) (QId.add_prefix const_suffix i) pos 
 
-                                   
 let mk_graph_type_decl: LA.type_decl -> dependency_analysis_data
   = function
   | FreeType (pos, i) -> singleton_dependency_analysis_data ty_suffix  i pos 
@@ -433,8 +431,8 @@ let check_and_add: 'a IMap.t -> Lib.position
   else R.ok (add_decl m (QId.from_string (suffix ^ QId.to_string i)) tyd)
 (** reject program if identifier is already declared  *)
   
-let rec  mk_decl_map: LA.declaration IMap.t -> LA.t -> (LA.declaration IMap.t) graph_result =
-  fun m ->
+let rec  mk_decl_map: LA.declaration IMap.t -> LA.t -> (LA.declaration IMap.t) graph_result
+  = fun m ->
   function  
   | [] -> R.ok m 
 
@@ -1124,6 +1122,47 @@ let analyze_automaton_states: node_summary -> LA.state -> unit graph_result =
                               ^ Lib.string_of_t (Lib.pp_print_list Format.pp_print_string ", ") ids))
          else fail_no_position "Cyclic dependency with no ids detected. This should not happen!")
      >> R.ok ()
+
+     
+let rec mk_state_map: LA.state IMap.t -> LA.state list -> (LA.state IMap.t) graph_result
+  = fun m ->
+  function
+  | [] -> R.ok m
+  | LA.State (pos, i, _, _, _, _, _) as s :: ss ->
+     check_and_add m pos "" i s >>= fun m' -> mk_state_map m' ss        
+
+let rec check_valid_transition_branch: LA.state IMap.t -> LA.transition_branch -> unit graph_result
+  = fun m ->
+  function
+  | LA.Target (TransRestart (_, (pos, i)))
+    | LA.Target (TransResume (_, (pos, i))) ->
+     if (IMap.mem i m)
+     then R.ok()
+     else graph_error pos ("Cannot find Target transition branch " ^ QId.to_string i)
+  | TransIf (_, _, b, b_opt) ->
+     check_valid_transition_branch m b
+     >> (match b_opt with
+         | Some b -> check_valid_transition_branch m b
+         | None -> R.ok ())
+
+let check_valid_state_transition: LA.state IMap.t -> LA.state -> unit graph_result
+  = fun m ->
+  function
+  | LA.State (pos, i, _, _, _, trans_opt1, trans_opt2) ->
+     (match trans_opt1 with
+     | Some (pos, branch) -> check_valid_transition_branch m branch
+     | None -> R.ok ())
+    >>  (match trans_opt2 with
+     | Some (pos, branch) -> check_valid_transition_branch m branch
+     | None -> R.ok ())
+ 
+             
+                                            
+let analyze_states: LA.state list -> unit graph_result
+  = fun states -> 
+  mk_state_map IMap.empty states >>= fun state_map ->
+  R.seq_ (List.map (check_valid_state_transition state_map) states) 
+  
      
 let rec analyze_circ_automatons: node_summary -> LA.node_item list -> unit graph_result =
   fun m ->
@@ -1131,6 +1170,7 @@ let rec analyze_circ_automatons: node_summary -> LA.node_item list -> unit graph
   | [] -> R.ok ()
   | (LA.Body (LA.Automaton (_, _, states, _))) :: items ->
      (R.seq_ (List.map (analyze_automaton_states m) states))
+     >> analyze_states states
      >> analyze_circ_automatons m items
   | _ :: items -> analyze_circ_automatons m items
 
