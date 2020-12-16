@@ -1138,7 +1138,7 @@ let rec check_valid_transition_branch: LA.state IMap.t -> LA.transition_branch -
     | LA.Target (TransResume (_, (pos, i))) ->
      if (IMap.mem i m)
      then R.ok()
-     else graph_error pos ("Cannot find Target transition branch " ^ QId.to_string i)
+     else graph_error pos ("In Automaton Cannot find target transition branch " ^ QId.to_string i)
   | TransIf (_, _, b, b_opt) ->
      check_valid_transition_branch m b
      >> (match b_opt with
@@ -1156,23 +1156,35 @@ let check_valid_state_transition: LA.state IMap.t -> LA.state -> unit graph_resu
      | Some (pos, branch) -> check_valid_transition_branch m branch
      | None -> R.ok ())
  
-             
-                                            
+
+let check_only_one_initial_state: LA.state list -> unit graph_result
+  = fun ss ->
+  let initial_states = List.filter (fun (LA.State(_, _, b, _, _, _, _)) -> b) ss in
+  if List.length initial_states <= 1
+  then R.ok ()
+  else
+    let pis = List.map (fun (LA.State (p, i, _, _, _, _, _)) -> (p, i)) ss in
+    graph_error (fst (List.hd pis))
+      ("Automaton cannot have more than one initial state but found states: "
+      ^ (Lib.string_of_t ((Lib.pp_print_list QId.pp_print_ident) ",") (List.map snd pis)))
+
 let analyze_states: LA.state list -> unit graph_result
   = fun states -> 
   mk_state_map IMap.empty states >>= fun state_map ->
-  R.seq_ (List.map (check_valid_state_transition state_map) states) 
-  
+  R.seq_ (List.map (check_valid_state_transition state_map) states)
+  >> check_only_one_initial_state states
+(* Checks that the transition states are valid and there is atmost one initial state *)
      
-let rec analyze_circ_automatons: node_summary -> LA.node_item list -> unit graph_result =
+let rec analyze_automatons: node_summary -> LA.node_item list -> unit graph_result =
   fun m ->
   function
   | [] -> R.ok ()
   | (LA.Body (LA.Automaton (_, _, states, _))) :: items ->
      (R.seq_ (List.map (analyze_automaton_states m) states))
      >> analyze_states states
-     >> analyze_circ_automatons m items
-  | _ :: items -> analyze_circ_automatons m items
+     >> analyze_automatons m items
+  | _ :: items -> analyze_automatons m items
+(** checks all the automatons in the node *)
 
 let analyze_circ_node_equations: node_summary -> LA.node_item list -> unit graph_result =
   fun m eqns ->
@@ -1188,7 +1200,7 @@ let analyze_circ_node_equations: node_summary -> LA.node_item list -> unit graph
                             ("Cyclic dependency detected in equations with identifiers: "
                              ^ Lib.string_of_t (Lib.pp_print_list Format.pp_print_string ", ") ids))
         else fail_no_position "Cyclic dependency with no ids detected. This should not happen!")
-    >> analyze_circ_automatons m eqns
+    >> analyze_automatons m eqns
     >> R.ok ()
 (** Check for node equations, we need to flatten the node calls using [node_summary] generated *)
     
