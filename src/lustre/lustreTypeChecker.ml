@@ -1040,11 +1040,11 @@ and check_contract_node_eqn: QSI.t -> tc_context -> LA.contract_node_equation ->
            >>= fun ret_tys ->  
            let ret_ty = if List.length ret_tys = 1
                         then List.hd ret_tys
-                        else LA.TupleType (pos, ret_tys) in
+                        else LA.GroupType (pos, ret_tys) in
            R.seq(List.map (infer_type_expr ctx) args) >>= fun arg_tys -> 
            let arg_ty = if List.length arg_tys = 1
                         then List.hd arg_tys
-                        else LA.TupleType (pos, arg_tys) in
+                        else LA.GroupType (pos, arg_tys) in
            let exp_ty = LA.TArr (pos, arg_ty, ret_ty) in
            (match (lookup_contract_ty ctx cname) with
             | Some inf_ty -> 
